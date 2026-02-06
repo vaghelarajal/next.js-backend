@@ -1,23 +1,13 @@
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+from middleware import setup_cors_middleware
 from routes import auth_router
-import os
-from dotenv import load_dotenv
-
-load_dotenv()
 
 app = FastAPI(title="Auth API", version="1.0.0")
 
-frontend_urls = os.getenv("FRONTEND_URLS", "").split(",")
+# Setup middleware
+setup_cors_middleware(app)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=frontend_urls,
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE"],
-    allow_headers=["*"],
-)
-
+# Include routers
 app.include_router(auth_router)
 
 

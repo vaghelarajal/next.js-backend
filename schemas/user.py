@@ -39,18 +39,18 @@ class ResetPasswordRequest(BaseModel):
 
 
 class TokenData(BaseModel):
-    email: str | None = None
+    email: EmailStr | None = None
 
 
 # Response Models
 class UserResponse(BaseModel):
     id: int
     username: str
-    email: str
+    email: EmailStr
     address: str | None = None
     gender: str | None = None
     age: int | None = None
-    
+
     class Config:
         from_attributes = True  # Allows creating from SQLAlchemy models
 

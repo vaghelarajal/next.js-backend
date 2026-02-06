@@ -6,10 +6,16 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # PostgreSQL database configuration
-DATABASE_URL = os.getenv("DATABASE_URL")
+DATABASE_URL = os.getenv("DATABASE_URL", "")
 
 if not DATABASE_URL:
-    raise ValueError("DATABASE_URL environment variable is not set")
+    import warnings
+    warnings.warn(
+        "DATABASE_URL environment variable is not set. "
+        "Database operations will fail. Please set DATABASE_URL in .env file."
+    )
+    # Use a dummy URL for import purposes
+    DATABASE_URL = "postgresql://user:pass@localhost/db"
 
 # Simple, fast engine configuration
 engine = create_engine(
