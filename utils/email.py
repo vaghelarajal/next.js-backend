@@ -1,8 +1,3 @@
-from passlib.context import CryptContext
-from datetime import datetime, timedelta
-from jose import jwt, JWTError
-from fastapi import HTTPException, status, Depends
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -12,13 +7,6 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-security = HTTPBearer()
-
-SECRET_KEY = os.getenv("SECRET_KEY", "SUPER_SECRET_KEY_CHANGE_THIS")
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
-
 # Email configuration
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
@@ -26,50 +14,13 @@ EMAIL_ADDRESS = os.getenv("EMAIL_ADDRESS")
 EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
 
 
-def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
-
-
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
-
-
-def create_access_token(data: dict, expires_delta: timedelta | None = None):
-    to_encode = data.copy()
-    expire = datetime.utcnow() + (
-        expires_delta if expires_delta
-        else timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    )
-    to_encode.update({"exp": expire})
-    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-
-
-def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    """Verify JWT token and return user email"""
-    try:
-        payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
-        email: str = payload.get("sub")
-        if email is None:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid authentication credentials",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        return email
-    except JWTError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authentication credentials",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-
 def send_reset_email(email: str, reset_link: str):
     """Send password reset email with HTML template and clickable links"""
     # Quick credential check
     if not EMAIL_ADDRESS or not EMAIL_PASSWORD:
-        print(f" Email not configured, reset link: {reset_link}")
+        print(f"⚠️ Email not configured, reset link: {reset_link}")
         return False
+    
     try:
         # Create email with HTML template
         msg = MIMEMultipart('alternative')
@@ -154,9 +105,11 @@ If you didn't request this, please ignore this email.
         server.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
         server.sendmail(EMAIL_ADDRESS, email, msg.as_string())
         server.quit()
-        print(f" HTML email sent to {email}")
+        
+        print(f"✅ HTML email sent to {email}")
         return True
+        
     except Exception as e:
-        print(f" Email failed: {e}")
+        print(f"❌ Email failed: {e}")
         print(f"Reset link: {reset_link}")
         return False

@@ -1,12 +1,18 @@
 from datetime import timedelta
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from database import get_db, Base, engine
-from schemas import UserCreate, UserLogin, UserUpdate, ForgotPasswordRequest, ResetPasswordRequest
+from config.database import get_db, Base, engine
+from schemas import (
+    UserCreate, UserLogin, UserUpdate,
+    ForgotPasswordRequest, ResetPasswordRequest,
+    LoginResponse, MessageResponse, ProfileUpdateResponse, UserResponse
+)
 from models import User, UsedToken
-from utlis import hash_password, verify_password, send_reset_email, verify_token
+from utils import (
+    hash_password, verify_password, send_reset_email,
+    verify_token, SECRET_KEY, ALGORITHM, create_access_token
+)
 from jose import JWTError, jwt
-from utlis import SECRET_KEY, ALGORITHM, create_access_token
 import hashlib
 
 # Create tables on first import
@@ -32,7 +38,7 @@ def mark_token_as_used(token: str, user_email: str, db: Session):
     db.commit()
 
 
-@router.post("/signup", status_code=status.HTTP_201_CREATED)
+@router.post("/signup", status_code=status.HTTP_201_CREATED, response_model=MessageResponse)
 def signup(user: UserCreate, db: Session = Depends(get_db)):
     # Validate password confirmation
     if user.password != user.confirm_password:
@@ -51,10 +57,10 @@ def signup(user: UserCreate, db: Session = Depends(get_db)):
     # Save to db
     db.add(new_user)
     db.commit()
-    return {"message": "User registered successfully"}
+    return MessageResponse(message="User registered successfully", success=True)
 
 
-@router.post("/login")
+@router.post("/login", response_model=LoginResponse)
 def login(user: UserLogin, db: Session = Depends(get_db)):
     # Find user by email
     db_user = db.query(User).filter(User.email == user.email).first()
@@ -63,53 +69,48 @@ def login(user: UserLogin, db: Session = Depends(get_db)):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     # Create jwt token
-    return {
-        "access_token": create_access_token({"sub": db_user.email}),
-        "token_type": "bearer",
-        "user": {
-            "id": db_user.id,
-            "username": db_user.username,
-            "email": db_user.email,
-            "address": db_user.address,
-            "gender": db_user.gender,
-            "age": db_user.age,
-        }
-    }
+    return LoginResponse(
+        access_token=create_access_token({"sub": db_user.email}),
+        token_type="bearer",
+        user=UserResponse.model_validate(db_user)
+    )
 
 
-@router.post("/forgot-password")
-def forgot_password(data: ForgotPasswordRequest, db: Session = Depends(get_db)):
+@router.post("/forgot-password", response_model=MessageResponse)
+def forgot_password(
+    data: ForgotPasswordRequest, db: Session = Depends(get_db)
+):
     """Send password reset email to user"""
     try:
         # Find user by email
         user = db.query(User).filter(User.email == data.email).first()
         if not user:
-            return {
-                "message": "Password reset link has been sent.",
-                "success": True
-            }
+            return MessageResponse(
+                message="Password reset link has been sent.",
+                success=True
+            )
 
         # Generate reset token
         token = create_access_token(
             {"sub": user.email, "type": "password_reset"},
             expires_delta=timedelta(minutes=10)
         )
-        reset_link = f"http://localhost:3000/auth/reset-password?token={token}"
+        reset_link = f"http://localhost:3000/reset-password?token={token}"
         # Attempt to send email
         try:
             send_reset_email(user.email, reset_link)
             print(f"✅ Password reset email sent to {user.email}")
-            return {
-                "message": "Password reset link has been sent, please check.",
-                "success": True
-            }
+            return MessageResponse(
+                message="Password reset link has been sent, please check.",
+                success=True
+            )
         except Exception as email_error:
             print(f"❌ Email sending failed: {email_error}")
             # Still return success to not reveal if email exists
-            return {
-                "message": "Password reset link has been sent.",
-                "success": True
-            }
+            return MessageResponse(
+                message="Password reset link has been sent.",
+                success=True
+            )
     except Exception as e:
         print(f"❌ Forgot password error: {e}")
         raise HTTPException(
@@ -118,14 +119,14 @@ def forgot_password(data: ForgotPasswordRequest, db: Session = Depends(get_db)):
         )
 
 
-@router.post("/reset-password")
+@router.post("/reset-password", response_model=MessageResponse)
 def reset_password(data: ResetPasswordRequest, db: Session = Depends(get_db)):
     """Reset user password using token"""
     try:
         # Check if token has been used
         if is_token_used(data.token, db):
-            raise HTTPException(status_code=400, detail="Reset link has already been used")
-            
+            raise HTTPException(status_code=400,
+                                detail="Reset link has already been used")
         # Decode and validate token
         payload = jwt.decode(data.token, SECRET_KEY, algorithms=[ALGORITHM])
         email = payload.get("sub")
@@ -159,16 +160,15 @@ def reset_password(data: ResetPasswordRequest, db: Session = Depends(get_db)):
 
         # Mark token as used BEFORE updating password
         mark_token_as_used(data.token, user.email, db)
-        
         # Update password
         user.password = hash_password(data.new_password)
         db.commit()
 
         print(f"✅ Password reset successful for {user.email}")
-        return {
-            "message": "Password reset successful.",
-            "success": True
-        }
+        return MessageResponse(
+            message="Password reset successful.",
+            success=True
+        )
     except HTTPException:
         raise
     except Exception as e:
@@ -180,9 +180,9 @@ def reset_password(data: ResetPasswordRequest, db: Session = Depends(get_db)):
         )
 
 
-@router.put("/profile")
+@router.put("/profile", response_model=ProfileUpdateResponse)
 def update_profile(
-    user_data: UserUpdate, 
+    user_data: UserUpdate,
     current_user_email: str = Depends(verify_token),
     db: Session = Depends(get_db)
 ):
@@ -209,35 +209,22 @@ def update_profile(
             updated_fields.append("age")
         
         if not updated_fields:
-            return {
-                "message": "No changes made to profile",
-                "user": {
-                    "id": user.id,
-                    "username": user.username,
-                    "email": user.email,
-                    "address": user.address,
-                    "gender": user.gender,
-                    "age": user.age,
-                }
-            }
+            return ProfileUpdateResponse(
+                message="No changes made to profile",
+                success=True,
+                user=UserResponse.model_validate(user)
+            )
         
         # Commit changes
         db.commit()
         db.refresh(user)
         print(f"✅ Profile updated for {user.email}: {', '.join(updated_fields)}")
         
-        return {
-            "message": f"Updated successfully: {', '.join(updated_fields)}",
-            "success": True,
-            "user": {
-                "id": user.id,
-                "username": user.username,
-                "email": user.email,
-                "address": user.address,
-                "gender": user.gender,
-                "age": user.age,
-            }
-        }
+        return ProfileUpdateResponse(
+            message=f"Updated successfully: {', '.join(updated_fields)}",
+            success=True,
+            user=UserResponse.model_validate(user)
+        )
     except HTTPException:
         raise
     except Exception as e:
@@ -249,7 +236,7 @@ def update_profile(
         )
 
 
-@router.get("/me")
+@router.get("/me", response_model=UserResponse)
 def get_current_user(
     current_user_email: str = Depends(verify_token),
     db: Session = Depends(get_db)
@@ -261,14 +248,4 @@ def get_current_user(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found"
         )
-    
-    return {
-        "user": {
-            "id": user.id,
-            "username": user.username,
-            "email": user.email,
-            "address": user.address,
-            "gender": user.gender,
-            "age": user.age,
-        }
-    }
+    return UserResponse.model_validate(user)
