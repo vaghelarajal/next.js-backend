@@ -2,7 +2,11 @@ from datetime import timedelta
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from config import get_db, Base, engine
-from utils import hash_password, verify_password, create_access_token, verify_token, get_current_user
+from utils import (
+    hash_password, verify_password,
+    create_access_token,
+    get_current_user
+)
 from models import User
 from schemas import (
     UserCreate, UserLogin, UserUpdate,
@@ -171,7 +175,6 @@ def reset_password(data: ResetPasswordRequest, db: Session = Depends(get_db)):
         )
 
 
-@router.put("/profile", response_model=ProfileUpdateResponse)
 @router.patch("/profile", response_model=ProfileUpdateResponse)
 def update_profile(
     user_data: UserUpdate,
