@@ -17,7 +17,7 @@ class UserLogin(BaseModel):
 class UserUpdate(BaseModel):
     address: str | None = Field(None, min_length=5, max_length=255)
     gender: str | None = None
-    age: int | None = Field(None, ge=1, le=120)
+    age: int | None = Field(None, ge=13, le=100)
 
     @field_validator('address')
     def validate_address(cls, v):
@@ -27,6 +27,15 @@ class UserUpdate(BaseModel):
             if not any(c.isalnum() for c in v):
                 raise ValueError('Address must contain one letter or number')
         return v.strip() if v else None
+
+    @field_validator('gender')
+    def validate_gender(cls, v):
+        if v is not None:
+            allowed_genders = ['female', 'male', 'other']
+            if v.lower() not in allowed_genders:
+                raise ValueError(f'Gender must be one of: {", ".join(allowed_genders)}')
+            return v.lower()
+        return None
 
 
 class ForgotPasswordRequest(BaseModel):

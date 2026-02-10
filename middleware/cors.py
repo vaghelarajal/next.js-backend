@@ -14,6 +14,6 @@ def setup_cors_middleware(app: FastAPI) -> None:
         CORSMiddleware,
         allow_origins=frontend_urls,
         allow_credentials=True,
-        allow_methods=["GET", "POST", "PUT", "DELETE"],
+        allow_methods=["*"],
         allow_headers=["*"],
     )

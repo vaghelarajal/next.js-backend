@@ -17,7 +17,9 @@ def send_reset_email(email: str, reset_link: str) -> bool:
     """Send password reset email with HTML template and clickable links"""
     # Quick credential check
     if not EMAIL_ADDRESS or not EMAIL_PASSWORD:
-        print(f"Email not configured, reset link: {reset_link}")
+        print(f"❌ Email not configured!")
+        print(f"   EMAIL_ADDRESS: {EMAIL_ADDRESS}")
+        print(f"   EMAIL_PASSWORD: {'*' * len(EMAIL_PASSWORD) if EMAIL_PASSWORD else 'NOT SET'}")
         return False
 
     try:
@@ -105,10 +107,13 @@ If you didn't request this, please ignore this email.
         server.sendmail(EMAIL_ADDRESS, email, msg.as_string())
         server.quit()
 
-        print(f"HTML email sent to {email}")
+        print(f"✅ Email sent successfully to {email}")
         return True
 
     except Exception as e:
-        print(f"Email failed: {e}")
-        print(f"Reset link: {reset_link}")
+        print(f"❌ Email sending failed!")
+        print(f"   Error: {str(e)}")
+        print(f"   SMTP: {SMTP_SERVER}:{SMTP_PORT}")
+        print(f"   From: {EMAIL_ADDRESS}")
+        print(f"   To: {email}")
         return False
