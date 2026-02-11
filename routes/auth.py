@@ -38,25 +38,47 @@ router = APIRouter(prefix="/auth", tags=["Auth"])
 @router.post("/signup", status_code=status.HTTP_201_CREATED,
              response_model=MessageResponse)
 def signup(user: UserCreate, db: Session = Depends(get_db)):
-    # Validate password confirmation
-    if user.password != user.confirm_password:
-        raise HTTPException(status_code=400, detail="Passwords do not match")
+    try:
+        # Validate password confirmation
+        if user.password != user.confirm_password:
+            raise HTTPException(status_code=400, detail="Passwords do not match")
 
-    # Check email exist
-    if db.query(User).filter(User.email == user.email).first():
-        raise HTTPException(status_code=400, detail="Email already registered")
+        # Check if username exists
+        if db.query(User).filter(User.username == user.username).first():
+            raise HTTPException(status_code=400, detail="Username already taken")
+        
+        # Check if email exists
+        if db.query(User).filter(User.email == user.email).first():
+            raise HTTPException(status_code=400, detail="Email already registered")
 
-    # Create new user with hashed pwd
-    new_user = User(
-        username=user.username,
-        email=user.email,
-        password=hash_password(user.password)
-    )
-    # Save to db
-    db.add(new_user)
-    db.commit()
-    return MessageResponse(message="User registered successfully",
-                           success=True)
+        # Create new user with hashed pwd
+        new_user = User(
+            username=user.username,
+            email=user.email,
+            password=hash_password(user.password)
+        )
+        # Save to db
+        db.add(new_user)
+        db.commit()
+        return MessageResponse(message="User registered successfully",
+                               success=True)
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        # Check if it's a unique constraint violation
+        error_str = str(e).lower()
+        if "unique constraint" in error_str or "duplicate key" in error_str:
+            if "username" in error_str:
+                raise HTTPException(status_code=400, detail="Username already taken")
+            elif "email" in error_str:
+                raise HTTPException(status_code=400, detail="Email already registered")
+
+        print(f"❌ Signup error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create account. Please try again."
+        )
 
 
 @router.post("/login", response_model=LoginResponse)
