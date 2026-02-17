@@ -1,6 +1,19 @@
 from datetime import timedelta
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from config import get_db, Base, engine
+from utils import (
+    hash_password, verify_password,
+    create_access_token,
+    get_current_user
+)
+from models import User
+from schemas import (
+    UserCreate, UserLogin, UserUpdate,
+    ForgotPasswordRequest, ResetPasswordRequest,
+    LoginResponse, MessageResponse, ProfileUpdateResponse, UserResponse
+)
+from services import send_reset_email, is_token_used, mark_token_as_used
 from jose import JWTError, jwt
 import os
 from dotenv import load_dotenv
@@ -11,17 +24,7 @@ load_dotenv()
 SECRET_KEY = os.getenv("SECRET_KEY", "SUPER_SECRET_KEY_CHANGE_THIS")
 ALGORITHM = "HS256"
 RESET_TOKEN_EXPIRE_MINUTES = 10
-FRONTEND_RESET_URL = os.getenv("FRONTEND_RESET_URL", "http://localhost:3000/reset-password")
-
-from config import get_db, Base, engine
-from utils import hash_password, verify_password, create_access_token, verify_token, get_current_user
-from models import User
-from schemas import (
-    UserCreate, UserLogin, UserUpdate,
-    ForgotPasswordRequest, ResetPasswordRequest,
-    LoginResponse, MessageResponse, ProfileUpdateResponse, UserResponse
-)
-from services import send_reset_email, is_token_used, mark_token_as_used
+FRONTEND_RESET_URL = os.getenv("FRONTEND_RESET_URL")
 
 # Create tables on first import
 try:
@@ -35,25 +38,47 @@ router = APIRouter(prefix="/auth", tags=["Auth"])
 @router.post("/signup", status_code=status.HTTP_201_CREATED,
              response_model=MessageResponse)
 def signup(user: UserCreate, db: Session = Depends(get_db)):
-    # Validate password confirmation
-    if user.password != user.confirm_password:
-        raise HTTPException(status_code=400, detail="Passwords do not match")
+    try:
+        # Validate password confirmation
+        if user.password != user.confirm_password:
+            raise HTTPException(status_code=400, detail="Passwords do not match")
 
-    # Check email exist
-    if db.query(User).filter(User.email == user.email).first():
-        raise HTTPException(status_code=400, detail="Email already registered")
+        # Check if username exists
+        if db.query(User).filter(User.username == user.username).first():
+            raise HTTPException(status_code=400, detail="Username already taken")
+        
+        # Check if email exists
+        if db.query(User).filter(User.email == user.email).first():
+            raise HTTPException(status_code=400, detail="Email already registered")
 
-    # Create new user with hashed pwd
-    new_user = User(
-        username=user.username,
-        email=user.email,
-        password=hash_password(user.password)
-    )
-    # Save to db
-    db.add(new_user)
-    db.commit()
-    return MessageResponse(message="User registered successfully",
-                           success=True)
+        # Create new user with hashed pwd
+        new_user = User(
+            username=user.username,
+            email=user.email,
+            password=hash_password(user.password)
+        )
+        # Save to db
+        db.add(new_user)
+        db.commit()
+        return MessageResponse(message="User registered successfully",
+                               success=True)
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        # Check if it's a unique constraint violation
+        error_str = str(e).lower()
+        if "unique constraint" in error_str or "duplicate key" in error_str:
+            if "username" in error_str:
+                raise HTTPException(status_code=400, detail="Username already taken")
+            elif "email" in error_str:
+                raise HTTPException(status_code=400, detail="Email already registered")
+
+        print(f"❌ Signup error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create account. Please try again."
+        )
 
 
 @router.post("/login", response_model=LoginResponse)
@@ -92,23 +117,21 @@ def forgot_password(
             expires_delta=timedelta(minutes=RESET_TOKEN_EXPIRE_MINUTES)
         )
         reset_link = f"{FRONTEND_RESET_URL}?token={token}"
+
         # Attempt to send email
         try:
             send_reset_email(user.email, reset_link)
-            print(f"Password reset email sent to {user.email}")
             return MessageResponse(
                 message="Password reset link has been sent, please check.",
                 success=True
             )
-        except Exception as email_error:
-            print(f"Email sending failed: {email_error}")
+        except Exception:
             # Still return success to not reveal if email exists
             return MessageResponse(
                 message="Password reset link has been sent.",
                 success=True
             )
-    except Exception as e:
-        print(f"Forgot password error: {e}")
+    except Exception:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Unable to process password reset request"
@@ -160,23 +183,21 @@ def reset_password(data: ResetPasswordRequest, db: Session = Depends(get_db)):
         user.password = hash_password(data.new_password)
         db.commit()
 
-        print(f"✅ Password reset successful for {user.email}")
         return MessageResponse(
             message="Password reset successful.",
             success=True
         )
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         db.rollback()
-        print(f"❌ Password reset error: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to reset password"
         )
 
 
-@router.put("/profile", response_model=ProfileUpdateResponse)
+@router.patch("/profile", response_model=ProfileUpdateResponse)
 def update_profile(
     user_data: UserUpdate,
     user: User = Depends(get_current_user),
@@ -184,7 +205,6 @@ def update_profile(
 ):
     """Update user profile information - requires JWT authentication"""
     try:
-
         # Update only provided fields
         updated_fields = []
         if user_data.address is not None:
@@ -206,7 +226,6 @@ def update_profile(
         # Commit changes
         db.commit()
         db.refresh(user)
-        print(f"Profile updated for {user.email}: {', '.join(updated_fields)}")
 
         return ProfileUpdateResponse(
             message=f"Updated successfully: {', '.join(updated_fields)}",
@@ -215,9 +234,8 @@ def update_profile(
         )
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         db.rollback()
-        print(f" Profile update error: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to update profile"

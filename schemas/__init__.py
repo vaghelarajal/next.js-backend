@@ -10,6 +10,12 @@ from .user import (
     MessageResponse,
     ProfileUpdateResponse
 )
+from .product import (
+    ProductBase,
+    ProductCreate,
+    ProductUpdate,
+    ProductResponse,
+)
 
 __all__ = [
     "UserCreate",
@@ -21,5 +27,9 @@ __all__ = [
     "UserResponse",
     "LoginResponse",
     "MessageResponse",
-    "ProfileUpdateResponse"
+    "ProfileUpdateResponse",
+    "ProductBase",
+    "ProductCreate",
+    "ProductUpdate",
+    "ProductResponse",
 ]
