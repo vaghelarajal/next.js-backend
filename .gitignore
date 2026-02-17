@@ -1,3 +1,7 @@
 .env
 start_server.py
 test_email.py
+__pycache__
+temp_auto_push.bat
+temp_interactive_push.bat
+.gitignore
